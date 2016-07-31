@@ -58,27 +58,128 @@ internals.requireWithContext = function(contextModule, id) {
 
 internals.doesCodeRun = function(filename, code) {
 
-  const strictCode = "\"use strict\";\n\n" + code;
-  const script = new Vm.Script(strictCode, {
-    "filename": filename
+  return new Promise(function(resolve, reject) {
+
+    process.nextTick(() => {
+      const myTimeout = setTimeout(() => {
+        reject(new Error("Code timed out"));
+      }, 10000);
+
+      // const strictCode = "\"use strict\";\n\n" + code;
+      const strictCode = `
+        "use strict";
+
+        function internalDone(error) {
+          process.removeListener("unhandledRejection", unhandledRejectionHandler);
+          done(error);
+        }
+
+        function unhandledRejectionHandler(error) {
+          process.nextTick(() => {
+            console.log("unhandledRejection");
+            internalDone(error);
+          });
+        }
+
+        process.on("unhandledRejection", unhandledRejectionHandler);
+
+        function run() {
+          ${code}
+        }
+
+        try {
+         let result = run();
+
+         if (result && typeof result.then === "function" && typeof result.catch === "function") {
+            result = result
+              .then(() => {
+                internalDone();
+              })
+              .catch(error => {
+                internalDone(error);
+              });
+         } else {
+          internalDone();
+         }
+        } catch (error) {
+          console.error(error);
+          console.error(error.stack);
+          internalDone(error);
+        }
+      `;
+
+      const script = new Vm.Script(strictCode, {
+        "filename": filename,
+        "lineOffset": -18 // This is the number of lines in strcit code before
+                          // the code is inserted.
+      });
+
+      const contextModule = internals.createModuleContext(filename);
+      const context = {
+        "clearTimeout": clearTimeout,
+        "console": console,
+        "done": function(error) {
+          clearTimeout(myTimeout);
+          if (error) {
+            return reject(error);
+          }
+          return resolve();
+        },
+        "module": contextModule,
+        "process": process,
+        "require": internals.requireWithContext.bind(internals, contextModule),
+        "setTimeout": setTimeout
+      };
+
+      const scriptContext = Vm.createContext(context);
+
+      script.runInContext(scriptContext);
+    });
   });
-
-  const contextModule = internals.createModuleContext(filename);
-  const context = {
-    "require": internals.requireWithContext.bind(internals, contextModule),
-    "module": contextModule,
-    "console": {
-      "log": function() {return;},
-      "error": function() {return;}
-    }
-  };
-
-  const scriptContext = Vm.createContext(context);
-  script.runInContext(scriptContext);
-
 }
 
 // Externals
+
+exports.run = function(filename) {
+
+  process.on("unhandledRejection", function(error) {
+    process.nextTick(() => {
+      console.log(error);
+    });
+  });
+
+  const mdIt = new MarkdownIt();
+  const code = [`
+
+  const Assert = require("assert");
+
+  return new Promise(function(resolve, reject) {
+
+    process.nextTick(() => {
+      console.log("hello world");
+      Assert.deepEqual(true, true);
+    });
+
+    setTimeout(() => {
+
+      console.log("DING!")
+      resolve();
+
+    }, 5000);
+  })
+
+  `,
+  `
+  console.log("Second script now running");
+  `];
+  let results = internals.doesCodeRun(filename, code[0]);
+  results = results.then(() => internals.doesCodeRun(filename, code[1]));
+
+  results = results.then(() => console.log("done"));
+  results = results.catch(err => console.log("error", err));
+
+  return results;
+};
 
 exports.run = function(filename) {
 
@@ -120,9 +221,13 @@ exports.run = function(filename) {
         console.log(Chalk.red("Errors found in the following code\n"));
 
         for (const error of errors) {
-          console.log(Chalk.red(`Error of ${error.error}`));
-          console.log(error.code);
-          console.log();
+          console.log(Chalk.red(`Error of:`));
+          console.log(Chalk.red(error.error.stack));
+          // console.log(error.code);
+          error.code.split("\n").forEach((line, index) => {
+            console.log(Chalk.green(index + 1) + ": " + line);
+          })
+            console.log();
         }
       });
 
@@ -130,4 +235,4 @@ exports.run = function(filename) {
         .catch(internals.ejectErrorFromChain);
 
     })
-}
+};
