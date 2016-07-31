@@ -9,7 +9,7 @@ It is just plain old node 4 compatable JS so no need to build. There is no comma
 To execute, execute server.js
 
 ```bash
-node server
+node dist/server <filename>
 ```
 
 It will report errors. Fix them and then repeat.
