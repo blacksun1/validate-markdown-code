@@ -14,6 +14,10 @@ const RunCode = require("./run-code");
 
 const internals = {}
 
+// The character this is output on each test
+internals.testIteratorCharacter = ".";
+
+// Basically, this will do the same as .done expect it doesn't handle a resolve.
 internals.ejectErrorFromChain = function(err) {
 
   process.nextTick(() => {
@@ -52,9 +56,9 @@ exports.run = function(filename) {
             currentCode = code;
             return RunCode.doesCodeRun(filename, code);
           })
-          .then(() => process.stdout.write("."))
+          .then(() => process.stdout.write(internals.testIteratorCharacter))
           .catch(err => {
-            process.stdout.write(Chalk.red("."));
+            process.stdout.write(Chalk.red(internals.testIteratorCharacter));
             errors.push({
               code: currentCode,
               error: err
